@@ -62,6 +62,20 @@ cd packages/protocol && bun run generate
 cd ../client     && bun run generate
 ```
 
+## Proving the loop
+
+`script/smoke.ts` drives one full turn against a running server: it creates a
+session, sends a prompt, waits for the drain, then prints each tool call with its
+output and the final answer.
+
+```bash
+OPENCODE_PASSWORD=secret bun run script/smoke.ts --model river/<model> "count the .ts files here"
+```
+
+It exists so the loop can be verified with a real provider before any client is
+written, and it doubles as a reference for the calls an editor client must make:
+create a session, post a prompt, wait, read the messages.
+
 ## Embedding in the editor
 
 The core is built to be owned by a parent process:

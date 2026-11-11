@@ -46,9 +46,11 @@ What is not done:
   management, no client. This is the next piece of work.
 - The core has no LSP client. The config schema exists
   (`packages/schema/src/config/lsp.ts`) but nothing implements it.
-- The editor still carries three dark theme variants locally while the theme
-  repository ships a different set; they will need to be reconciled when the
-  theme is vendored again.
+
+The editor now ships the released themes as-is: `z1 Ocean` (light), `z1
+Default` and `z1 Soft`. `z1 Ocean` is the default light theme, and the initial
+light colours come from it, so switching to light does not flash the stock
+theme's blue. `z1 Dark` was dropped — its accents never matched the other two.
 
 ---
 

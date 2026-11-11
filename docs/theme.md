@@ -12,8 +12,9 @@ not undo them.
 | `z1 Default` | dark | `#1A1A1A` | white |
 | `z1 Soft` | dark | `#242424` | white |
 
-`z1 Default` is the editor's default dark theme, set as a constant in
-`workbenchThemeService.ts`. It is not a setting a user has to find.
+`z1 Default` is the editor's default dark theme and `z1 Ocean` its default light
+theme, both set as constants in `workbenchThemeService.ts`. Neither is a setting a
+user has to find.
 
 ## Rules
 

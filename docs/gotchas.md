@@ -41,29 +41,90 @@ telemetry level defaults to `none`, the crash reporter defaults to disabled, and
 `product.json` carries no telemetry or update endpoint. A third-party extension
 can still send its own telemetry, and that cannot be fixed by configuration.
 
-## Agent core
+## Agent engine (z1-sdk)
 
-**`git` is required to build.**
-`packages/script/src/index.ts` derives the version channel from
-`git branch --show-current`. Without a git work tree the script fails; on a
-detached HEAD the channel becomes `detached`.
+**`pnpm z1` does not run where you think it does.**
+`pnpm` runs a workspace script with the package root as `process.cwd()`, so a
+relative `--db`, `z1.config.json` or graph path resolves against the repository,
+not the directory the caller typed. The CLI reads `INIT_CWD` to recover the
+caller's directory (`z1/apps/cli/src/bin.ts`). Only `run` also accepts
+`--cwd <path>`; the other commands use `INIT_CWD` alone. A script that changes
+directory without preserving `INIT_CWD` will quietly write `.z1/` in the wrong
+place.
 
-**Tests cannot be run from the repository root.**
-Both the root `test` script and `bunfig.toml` (`root =
-"./do-not-run-tests-from-root"`) block it. Always `cd packages/<pkg>` first.
+**Rebuild `lib/worker.js` after changing the node host.**
+The child process runs the built `z1/packages/node-host/lib/worker.js`, not the
+`src/` file. `resolveWorkerBootstrap` prefers `./worker.js` next to `host.js`,
+then `../lib/worker.js` when running from `src`, and only then `worker.ts`. A
+stale build means tests exercise yesterday's broker and a fix appears not to
+work. `pnpm -C z1 build` is the fix.
 
-**`bun install` will fail after a dependency bump if a patch no longer applies.**
-Fourteen dependencies are patched in `patches/`. Never delete that directory;
-regenerate a patch rather than dropping it.
+**A fork's sequence numbers are not the ones `run.get` reports.**
+`journal.fork` takes `--at <seq>` in the run's **own** numbering
+(`journal.ownedEvents`), because a fork only copies its parent's prefix. The
+server's `run.get` and `run.subscribe` replay **merged** numbering: the parent
+prefix plus this run's events (`TeeJournal`). Picking a seq from a `run.get`
+replay and passing it to `z1 fork --at` selects the wrong event, and can be
+past the end. `--at <nodePath>` avoids the mismatch entirely.
 
-**A package published minutes ago looks missing.**
-`bunfig.toml` sets `minimumReleaseAge = 259200` (three days). The allowlist is
-`minimumReleaseAgeExcludes`.
+**The grant is the authority, not the manifest.**
+`z1 module propose` prints what the manifest asks for; `z1 module approve` may
+grant less, and `z1 module list` prints the grant. A service or capability the
+grant omits is never started or brokered, even though the code and manifest are
+present. A pre-services grant (`services: []`) approves no services. Read the
+grant before debugging why a service is missing.
 
-**The core has no LSP client.**
-The configuration schema exists in `packages/schema/src/config/lsp.ts`, the
-editor-side integration does not. Documentation that claims LSP support is
-wrong.
+**`--no-modules` and `--no-service-modules` are not the same switch.**
+`--no-modules` (env `Z1_USE_MODULES`, file key `useModules`) disables node and
+service modules, host and worker alike. `--no-service-modules` (env
+`Z1_SERVICE_MODULES=0`, key `useServiceModules`) disables only services, and is
+per run — a later run uses the service again. A service-only child may still
+start if the runtime was constructed with services enabled and a later run
+disables them.
+
+**Worker and host services fail differently.**
+`mode` defaults to `worker`; `mode: "host"` requires `trusted: true` and an
+approval, and runs in the host process with full reach. Worker services go
+through the broker: `fs`/`net` calls are grant-checked and an approval request
+is refused unless it carries a known run id. A legacy manifest with
+`trusted: true` and no `mode` is a host service. Do not test one mode and claim
+the other.
+
+**Module-node approvals are ambiguous under concurrent runs.**
+An approval request from module node code resolves to the latest live run. With
+two runs in flight, a decision can go to the wrong one. Approve module nodes
+with `deny` or `auto`, or serialise the runs.
+
+**Tools v1 has no approvals.**
+The planned tool set (`z1-tools`, a separate repository) runs `write`, `edit`,
+`apply_patch`, `move`, `mkdir` and `shell` as soon as the model asks; no tool
+calls the approval service. The capability grant is the only boundary, so point
+it at a workspace you are willing to let a model rewrite. Do not assume
+`--approve ask` covers a tool call: it covers nodes, not tool internals.
+
+**`stat` and `move` are the awkward tools.**
+The worker runs under Node's permission flags, which deny `realpath`, `rename`
+and `readFile` even on write-granted paths. `stat` therefore uses the brokered
+`ctx.fs.stat` (`lstat`, so a symlink reports `symlink`), while containment
+(`realpath`), `move` and the atomic-patch rename step go through minimal `node
+-e` helpers spawned with `ctx.process.run`. Consequence: `move` is atomic within
+one filesystem, but an `EXDEV` move copies and deletes, so an interruption can
+leave both copies. `stat` does not follow symlinks; do not build a
+workspace-containment check on it alone.
+
+**Rate limits are retried, but only with `--live`.**
+Without `--live` the run uses the mock and never contacts a provider; `--model`
+alone warns. On a real endpoint, 429/5xx are retried with backoff and
+`retry-after` (`z1/packages/provider-openai/src/retry.ts`), tuned by
+`Z1_LLM_RETRY_ATTEMPTS`, `Z1_LLM_RETRY_BASE_MS`, `Z1_LLM_RETRY_MAX_MS`. A 4xx
+other than 429 is not retried.
+
+**Node's permission model is not a network boundary.**
+The worker's `--permission` flags gate the filesystem and child processes, but a
+module can still open a socket or call `fetch` directly. Only `ctx.net.request`
+enforces the manifest's host allowlist and only brokered calls are audited.
+Untrusted modules need an OS sandbox that this repository does not provide
+(`SECURITY.md`, `z1/packages/node-host/README.md`).
 
 ## Theme
 

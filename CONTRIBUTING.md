@@ -11,8 +11,8 @@ the command and its output.
 ## Change
 
 1. Work on a branch. `main` is what runs.
-2. Keep the change to one area. The editor, the core and the theme are three
-   repositories; a change that needs all three is three changes.
+2. Keep the change to one area. The editor, the engine and the theme are
+   separate repositories; a change that needs all of them is several changes.
 3. Run the checks for that area (`docs/commands.md`).
 4. For anything visual, restart the editor and look at the element. A passing
    check does not prove the pixels.
@@ -34,11 +34,11 @@ machine; a generated card cannot disagree with the theme file.
 area: summary
 ```
 
-`area` is `editor`, `core`, `theme` or `docs`. The summary is lowercase and
+`area` is `editor`, `sdk`, `theme` or `docs`. The summary is lowercase and
 describes what changed, not which files were touched.
 
 ## Licensing of contributions
 
 By contributing you agree your work is released under the MIT license of the
-repository you are contributing to. z1 is derived from VS Code, VSCodium and
-opencode; their notices stay in place.
+repository you are contributing to. z1 is derived from VS Code and VSCodium, and
+the agent engine from DeepSeek Harness; their notices stay in place.

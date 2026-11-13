@@ -1,29 +1,54 @@
 # Architecture
 
-Three pieces, three processes, one product.
+One editor, one engine, one theme. The engine is a graph runtime; the editor is
+its client (planned).
 
 ```
-┌─────────────────────────────────────────────┐
-│ z1-app — the editor                         │
-│   VS Code 1.143.1 source + z1 branding      │
-│   extensions/theme-defaults  ← the theme    │
-│                                             │
-│   ┌──────────────────────────────────────┐  │
-│   │ spawns as a child process (planned)  │  │
-│   └──────────────────┬───────────────────┘  │
-└──────────────────────┼──────────────────────┘
-                       │ HTTP + SSE
-                       │ basic auth: opencode:<password>
-                       ▼
-┌─────────────────────────────────────────────┐
-│ z1-core — the agent server                  │
-│   packages/cli      serve, ACP, one-shot    │
-│   packages/server   138 API paths           │
-│   packages/protocol contract + OpenAPI      │
-│   packages/core     sessions, tools,        │
-│                     providers, permissions  │
-│   packages/ai       model providers         │
-└─────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│ z1-app — the editor                                      │
+│   VS Code 1.143.1 source + z1 branding                   │
+│   extensions/theme-defaults  ← the theme                 │
+│                                                          │
+│   ┌────────────────────────────────────────────────────┐ │
+│   │ starts the engine (planned: CLI or in-process)     │ │
+│   └───────────────────────┬────────────────────────────┘ │
+└───────────────────────────┼──────────────────────────────┘
+                            │ CLI · JSON-RPC over WebSocket
+                            ▼
+┌──────────────────────────────────────────────────────────┐
+│ z1-sdk — the agent engine                                │
+│                                                          │
+│   apps/cli        z1 run/tree/fork/module/serve/studio    │
+│   apps/canvas     React Flow graph editor                │
+│   packages/server JSON-RPC over WebSocket, run control   │
+│   packages/protocol method map, events, transport        │
+│                          │                               │
+│                          ▼                               │
+│   ┌────────────────────────────────────────────────────┐ │
+│   │ graph engine                                       │ │
+│   │   @z1/node      node contract, ports, autonomy      │ │
+│   │   @z1/graph     document, validation, digest        │ │
+│   │   @z1/runtime   executor: dataflow + flow           │ │
+│   │   @z1/nodes     core, flow, llm, tool, prompt       │ │
+│   │   @z1/agent     the agent loop as a graph           │ │
+│   └───────┬───────────────────┬───────────────┬────────┘ │
+│           │                   │               │          │
+│           ▼                   ▼               ▼          │
+│   @z1/journal          @z1/memory       @z1/module       │
+│   SQLite runs,         branch-tree      manifests,       │
+│   forks, blobs         context          grants, audit    │
+│                                              │           │
+│                                              ▼           │
+│                                     @z1/node-host        │
+│                                     child process,       │
+│                                     capability broker    │
+└──────────────────────────────────────────────────────────┘
+                            │
+                            ▼
+┌──────────────────────────────────────────────────────────┐
+│ z1-tools — planned, separate repository                  │
+│   concrete read/write/shell/git/todo tools as a module   │
+└──────────────────────────────────────────────────────────┘
 ```
 
 ## Editor
@@ -49,51 +74,42 @@ The default dark theme is a constant, not a setting:
 with `COLOR_THEME_DARK_INITIAL_COLORS` that prevents a blue flash while the real
 theme loads.
 
-## Agent core
+The editor does not start the engine yet: no panel, no process manager, no
+client. That is the next piece of work.
 
-`z1-core` is a fork of `anomalyco/opencode` stripped to the core: the terminal
-interface, the web interface, the desktop app, the interface packages, the
-simulation harness and the hosted services are gone. What remains is the runtime
-and the server that exposes it.
+## Agent engine (`z1-sdk`)
 
-Request flow:
+The engine is a node-graph runtime derived from DeepSeek Harness (MIT). The
+`z1/` workspace is new code that composes the upstream engine at the
+provider/tool/session boundary; upstream packages are kept unchanged and their
+build gates must stay green.
+
+A run is a graph, not a chat turn. Nodes have typed data ports and ordered flow
+ports. The executor pulls data from cache and follows flow tokens; loops and
+maps are nested graphs, not free cycles. Every execution is a checkpoint in an
+append-only SQLite journal, so a run resumes after a crash and a fork is a
+pointer rather than a copy.
+
+Data flow, end to end:
 
 ```
-client → HTTP /api (Effect HttpApi)  +  SSE event feed
-       → packages/server/src/process.ts   ServerProcess.start
-       → packages/server/src/routes.ts    createRoutes
-       → service graph (LayerNode)
-       → packages/core                     session, tool, provider, permission, mcp
-       → packages/ai                       provider call
+CLI / canvas / server
+  → graph document (or template)
+  → @z1/runtime executor
+      → node registry (built-in, module, service)
+          → llm · tools · fs · artifacts · memory · approval
+              → provider  (OpenAI-compatible HTTP)
+              → module worker  (child process, capability broker)
+  → @z1/journal  (runs, events, blobs, forks)
+  → @z1/memory   (ancestors, siblings, recent steps)
 ```
 
-Key entry points:
+The server exposes the same runtime over JSON-RPC/WebSocket:
+`node.list`, `graph.*`, `run.start/resume/cancel/get/subscribe/fork`,
+`approval.respond`, `artifact.get` and `module.*`. `z1 studio` serves the built
+canvas from that server.
 
-| What | File |
-| --- | --- |
-| Server start | `packages/server/src/process.ts` |
-| Route construction | `packages/server/src/routes.ts` |
-| CLI commands | `packages/cli/src/commands/commands.ts` |
-| Child-process lifecycle | `packages/cli/src/server-process.ts` |
-| ACP server | `packages/cli/src/acp/` |
-
-Authentication is HTTP basic with the fixed username `opencode` and a password
-from `OPENCODE_PASSWORD`. A signed cookie is also accepted, which is what makes
-the browser-based pairing flow work.
-
-## How the two are meant to meet
-
-The editor starts the core as a child process and talks to it over HTTP. The
-core already supports being owned that way:
-
-- `serve --stdio` prints one JSON line with the URL and exits when stdin closes,
-  so the parent controls the lifetime.
-- `packages/sdk` can also run the host in-process, which is the alternative if a
-  child process turns out to be awkward.
-
-Nothing in the editor does this yet. There is no panel, no process manager and no
-client wiring. That is the next piece of work, and it should start with the
-smallest possible slice: start the process, show its status, send one prompt.
+Details are in [sdk.md](sdk.md).
 
 ## Theme
 
@@ -106,10 +122,10 @@ surfaces, black accents, no hue that does not carry a state.
 
 ## What is deliberately not here
 
-| Removed | Why |
+| Absent | Why |
 | --- | --- |
-| Terminal interface, web UI, desktop app | the editor is the UI |
-| GUI plugin surface (`plugin.gui`, `./gui-experimental`) | it exists to draw windows inside a desktop app |
-| LSP client | not implemented in this fork; only the config schema remains |
 | Telemetry endpoints and update feed | removed by configuration |
 | Microsoft Marketplace | Open VSX instead |
+| Concrete agent tools | a separate repository (`z1-tools`, planned) |
+| Editor ↔ engine integration | planned; the canvas is standalone for now |
+

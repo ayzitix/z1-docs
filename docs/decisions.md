@@ -71,33 +71,121 @@ repository is the only way to ship a VSIX.
 
 **Cost:** the copies drift. Vendoring is a deliberate step, not a sync.
 
-## The agent core is a server, not a library
+## The agent is a graph, not a chat loop
 
-**Decided:** `z1-core` runs as a local HTTP server with an SSE event feed, and
-the editor talks to it over a generated client.
+**Decided:** the top-level primitive is a graph run. A model call, a tool call,
+filesystem access, the prompt and the agent loop are nodes with typed data ports
+and ordered flow ports. The loop is a built-in graph, not hidden control flow.
 
-**Because:** the upstream project already had this shape — the terminal interface
-and the web interface were both clients of the same server. Keeping the shape
-means the editor is one more client rather than a rewrite, and the core stays
-usable from a terminal, from ACP, or from a script.
+**Because:** a chat loop cannot be read, diffed, resumed or forked as a unit. A
+graph can. Data ports give caching and validation at the boundary; flow ports
+make side-effect order explicit. A loop is then a nested graph with an iteration
+label, which is also what makes a fork inside a loop replay only the earlier
+iterations.
 
-**Cost:** process management in the editor: spawning, supervising, restarting,
-and holding a password.
+**Cost:** the graph is more ceremony than a prompt. The built-in templates and
+the canvas absorb that, and new workflows are assembled rather than prompted.
 
-**Would revisit if:** in-process embedding through `packages/sdk` proves simpler
-in practice. The core supports both.
+**Would revisit if:** the node contract cannot express a workflow without a new
+node type every time. That would mean the contract is wrong, not that the graph
+is.
 
-## What was removed from the core
+## Fork DeepSeek Harness, but keep z1 in its own layer
 
-**Decided:** delete the terminal interface, the web interface, the desktop app,
-the interface packages, the simulation harness and the GUI plugin surface.
+**Decided:** `z1-sdk` is derived from DeepSeek Harness (MIT), and every z1
+addition lives in the `z1/` workspace. Upstream packages are not edited.
 
-**Because:** they exist to draw windows in a desktop product. Inside a fork whose
-interface is a text editor they are dead weight — and the GUI plugin surface in
-particular pulled Electron into a package the server depends on.
+**Because:** the upstream engine already provides the provider, tool and session
+boundary the graph composes. Keeping z1 in `z1/packages` means an upstream
+merge is a merge, not a negotiation, and the upstream 10-gate build stays
+meaningful.
 
-**Cost:** the fork is further from upstream than it looks, and rebasing means
-resolving deletions again.
+**Cost:** two dependency graphs in one repository, and z1 cannot fix an upstream
+bug in place without a patch.
+
+## Everything is a module
+
+**Decided:** nodes, services, providers, prompt sections and graph templates are
+packages or data with manifests. The executor resolves them; the CLI does not
+import a node directly.
+
+**Because:** one extension mechanism means one grant model, one audit log and
+one install path. A provider is data in `z1.config.json`; a service is a
+manifest entry; a node is an export from the same package.
+
+**Cost:** indirection. A one-line change to a built-in still goes through the
+registry.
+
+## The prompt is nodes
+
+**Decided:** prompt sections are nodes, the stack is a node, and the rendered
+hash is a node output that the journal records.
+
+**Because:** the prompt behind a run must be reproducible from the journal. If
+the prompt were assembled inside the LLM node, the model call would be the only
+record of what was sent, and a fork would silently change it.
+
+**Cost:** more nodes in the agent graph and a canvas editor for sections.
+
+## Memory is the run tree
+
+**Decided:** memory is built from the journal's tree — ancestors, siblings and
+recent steps — not from a vector index or a rolling summary.
+
+**Because:** a fork is already a first-class operation; the tree is the truth
+about what was tried. A sibling records a failed approach, which a summary
+would erase. It also needs no extra store.
+
+**Cost:** context quality depends on how well node outputs are named, and the
+envelope is capped, so very old context is dropped.
+
+## Worker services, with a host trust exception
+
+**Decided:** a module service runs in the module's child process by default. A
+service may run in the host only with `trusted: true`, and the manifest says
+`mode: "host"` explicitly.
+
+**Because:** a service is ambient capability, so the safe default has to be the
+sandbox. Host mode exists for code the user wrote and is willing to run with
+full reach; making it explicit keeps an approved manifest honest.
+
+**Cost:** two service paths to test, and a service-only module still costs a
+child process.
+
+## Tools are a separate repository
+
+**Decided:** the SDK owns the tools service contract and the brokered
+capabilities; concrete tools (`read`, `write`, `shell`, `git`, `todo`) live in
+`z1-tools`.
+
+**Because:** tools change faster than the engine and carry their own security
+posture. A separate repository can release on its own cadence and be approved
+as a module; the SDK stays a runtime.
+
+**Cost:** the SDK ships a mock tool service, so a bare install cannot edit a
+file.
+
+## OpenAI-first documentation
+
+**Decided:** examples and docs use an OpenAI-compatible endpoint as the primary
+case. River is documented as one compatible endpoint, and a custom provider is a
+config entry.
+
+**Because:** the wire protocol is `openai-completions`; naming one vendor as the
+default would imply a gateway or an account that does not exist. A local server
+and a hosted one use the same code path.
+
+## One bootstrap, one config
+
+**Decided:** `@z1/bootstrap` builds the runtime (`createRuntime`,
+`loadRuntimeConfig`) and both the CLI and the server use it. Precedence is
+`overrides > environment > z1.config.json > defaults`.
+
+**Because:** two processes that assemble services differently produce two
+different products. One resolver means a flag in the CLI and a config key in the
+server cannot drift.
+
+**Cost:** config changes are central and need a test per key.
 
 ## Experiments go on a branch
 

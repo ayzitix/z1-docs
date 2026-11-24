@@ -189,12 +189,48 @@ turn is running**. Inside it: arrows and digits move, `Enter` opens a
 transcript, `x` stops the selected child and keeps the picker open, `Esc`
 closes without touching the draft.
 
+### What the transcript looks like
+
+One line per fact, with a fixed vocabulary. The glyph is the state, the colour
+is the meaning, and the text is prose:
+
+| Row | Reads |
+| --- | --- |
+| your prompt | `❯ fix the failing test` (dim) |
+| the model is thinking | `∴ Thinking…` (spinner) |
+| assistant text | `⬢ I'll read the config first.` |
+| a tool call | `⬢ Read package.json` |
+| its result | `  ⎿  ✓ Read 7 lines` |
+| a failure | `  ⎿  ✗ ENOENT: no such file or directory, lstat 'z1-cli/x.ts'` |
+| a turn ending | `⬢ done · 3.2s` |
+
+A tool row is a **verb and its target**, never the argument JSON: `Read
+package.json`, `Grep TODO`, `Shell git status --short`, `Move a.ts → b.ts`. An
+absolute path keeps only its last segments (`…/src/main.ts`); the file name is
+what identifies it. An unknown tool gets a humanised verb and its first
+argument, so nothing ever prints `{"path":…}`.
+
+A result says **what came back**, not how long it took: `Read 7 lines`, `List 32
+entries`, `(no output)`. Timing stays in the journal, not on the row. A failure
+drops the tool's `cannot read "x":` prefix (the call row already named the file)
+and any absolute path, keeping the code and the sentence.
+
+One blank line separates blocks - your prompt, each assistant message, each tool
+round - and none sits inside a block. The three `/view` modes differ in what
+they *keep*, not in vocabulary:
+
+| | compact | medium (default) | full |
+| --- | --- | --- | --- |
+| assistant text | yes | yes | yes |
+| tool call | only failures and background launches | one line per call; same-family calls fold (`⬢ Read 3 files · ✓`) | call row plus a result row |
+| result | - | `· ✓ 7 lines` on the call line | `  ⎿  ✓ Read 7 lines` |
+
 ### Notes
 
 - The prompt is composited, not a single line: `Esc` clears it, `Ctrl-C`
   exits (twice if armed), `Ctrl-D` on an empty prompt also exits.
-- A settled background child's answer is delivered at the start of your next
-  message, not mid-turn.
+- A settled background child's answer is delivered in its own turn, without
+  waiting for you to type; see [subagents.md](subagents.md).
 - `Z1_NO_WAIT=1` with `--once` leaves background children running instead of
   waiting for them; the run ids are printed.
 - Tests run on `tsx`, one file per behaviour:

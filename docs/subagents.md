@@ -66,15 +66,41 @@ There are four separate not-waits, and it is worth keeping them apart because
 only the first is about the tool call:
 
 1. **The call does not wait.** It resolves immediately with a run id.
-2. **The turn does not wait.** The parent turn keeps going and closes normally.
-   A tool result carrying `status: 'running'` is an ordinary successful tool
-   result to the loop; nothing in the turn branches on it.
+2. **The turn does not wait either — it ends.** A step whose every tool result is
+   a background launch is a **hand-off**: `z1.tool.background` recognises it and
+   the loop closes the turn with `completed`. The prompt is free the moment the
+   child is launched; there is no "delegated, waiting" follow-up step. A step
+   that also called a blocking tool is not a hand-off — that result is an answer
+   the model still has to read.
 3. **The result is not a tool result.** The child's answer is not returned to the
-   model inside the launching call — it did not exist yet. It is delivered at
-   the **start of the parent's next turn**, once, as a marked block.
+   model inside the launching call — it did not exist yet. It is delivered once,
+   as a marked block, in a turn of its own (see below).
 4. **Nothing blocks silently.** The budget slot is held until the child *ends*,
    not until the call returns; `/exit` has a bounded wait; `--once` has an
    explicit policy instead of a race.
+
+### The report comes back by itself
+
+Delivery does not wait for the user to type. When a background child settles, the
+session runs one automated turn whose seed carries the child's block:
+
+- **Settled while the prompt waits for input** — the session wakes the prompt
+  with an internal sentinel line and runs the delivery turn immediately.
+- **Settled during a turn** — that turn's seed was built before the report
+  existed, so it cannot carry it. The settle is remembered and the delivery turn
+  runs at the top of the loop, right after the turn, before the prompt waits.
+- **Several children at once** — one wake, one turn; the block names every child.
+
+A user who types before the report arrives simply goes first: their prompt is
+already queued, and the delivery turn follows it. The visible marker is one green
+row, `◷ subagent finished · reporting back`; the block itself follows in the
+transcript, marked as subagent output.
+
+`auto-delivery.ts` owns the decision (`settleSignal`, `afterTurnSignal`), so the
+whole rule is a pure function with tests and not a condition buried in the loop.
+A `wait: true` child never wakes a turn — it already answered its call. `--once`
+never wakes one either: it has no next turn, so its policy stays in
+`once-policy.ts`.
 
 ### Lifetime and ownership
 
@@ -118,11 +144,30 @@ The terminal layer lives in `z1-cli`.
 **The launching row** reads `started · /agents` rather than a duration, because
 there is no duration yet.
 
+**The closing row.** A hand-off usually carries no text — the model calls the
+tool and stops. The turn then prints
+
+```
+◷ subagent launched · the report arrives when it finishes · /agents
+```
+
+in green, instead of the empty-turn notice. The word matters: without it the
+transcript fell back to `(the model emitted tool-call markup with no tool result;
+nothing ran)`, which is false twice over — a child did start and the turn did not
+fail. The row counts the children **this turn** launched, not the ones still
+live, so a child fast enough to settle before the turn closes still gets an
+honest line.
+
 **The footer hint** shows how many children are running whenever there are any:
 
 ```
 ◷ 2 subagents running · /agents
 ```
+
+It is **green** — the theme spends hue only on states, and a live child is one —
+while the rest of the tray stays dim. Three writers draw that row (the composer
+footer, the turn's activity plate, and the between-turns repaint) and all three
+use the same green; the row's text still comes from the single `runningLabel`.
 
 It takes the slot the shortcut reminder (`? for shortcuts`) otherwise uses, and
 it stays visible between turns — the point is to be readable whenever the user
@@ -145,12 +190,12 @@ Stopping a `wait` child is refused, because that child belongs to a blocking
 call; the picker says so and names the way to stop it (Ctrl-C in that turn)
 rather than silently doing nothing.
 
-**Delivery.** A settled child is drained at the start of the next turn and
-injected as one block, marked as subagent output, carrying the run id, the
-status and the child's text. It is neutralised with the same formatter as a
-foreground result, so a child that prints something resembling instructions
-cannot impersonate them. Exactly once: never mid-turn, never twice, never as the
-launching call's tool result.
+**Delivery.** A settled child is drained into an automated turn and injected as
+one block, marked as subagent output, carrying the run id, the status and the
+child's text. It is neutralised with the same formatter as a foreground result,
+so a child that prints something resembling instructions cannot impersonate
+them. Exactly once: never mid-turn, never twice, never as the launching call's
+tool result — and never dependent on the user sending another message.
 
 **Non-interactive runs** (`--once`, a pipe, `Z1_TRAY=off`) print the list
 instead of opening a picker.
@@ -199,10 +244,6 @@ until its own `timeoutMs`.
 
 ## Known limits
 
-- **A launch as the model's last step closes the turn `failed`** at the step
-  cap, with no final message. The child still runs and its answer is delivered
-  next turn, so no work is lost — but the user sees an error line. This is agent
-  loop behaviour, not subagent behaviour.
 - **No nesting**, by design, not by omission.
 - **The transcript of a `wait` child** is only reachable while its run is in
   memory; `/agents <ref>` cannot open a child from a previous process.
@@ -221,6 +262,10 @@ until its own `timeoutMs`.
 | `subagent-exit.test.mts` | `z1-cli/tests/` | `/exit` kills a real process; a bystander survives |
 | `subagent-turn.test.mts` | `z1-cli/tests/` | a launch keeps its turn; the child is still live after |
 | `subagent-ux.test.mts` | `z1-cli/tests/` | footer hint, picker rows and keys, caret cells |
+| `subagent-row-colour.test.mts` | `z1-cli/tests/` | the live row is green in all three writers; `NO_COLOR` safe |
+| `auto-delivery.test.mts` | `z1-cli/tests/` | idle / mid-turn / coalesce decision, sentinel, wiring |
+| `auto-delivery-e2e.test.mts` | `z1-cli/tests/` | a real graph: no waiting, the report reaches the next turn once |
+| `launch-row.test.mts` | `z1-cli/tests/` | a hand-off says it launched; the false "nothing ran" notice is not used |
 
 Run one file:
 

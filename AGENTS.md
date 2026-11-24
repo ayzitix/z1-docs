@@ -47,11 +47,14 @@ What is done:
   journal with resume and fork, branch memory, prompt nodes, sandboxed modules
   with worker services, a JSON-RPC server, a canvas and a CLI. The upstream
   DeepSeek Harness build keeps its 10 gates.
-- **Terminal agent** (`z1-cli`) works against real tools: 14 of 17 test files
+- **Terminal agent** (`z1-cli`) works against real tools: 17 of 20 test files
   pass, the other three fail on a home-path override in this environment.
 - **Subagents** run and are reviewed: a parent can delegate to a child agent
   with a narrowed tool grant, and children run **in the background by default**
-  (`wait: true` restores blocking). See [docs/subagents.md](docs/subagents.md).
+  (`wait: true` restores blocking). A settled child's report is delivered in an
+  automated turn of its own — the session wakes itself, so the parent does not
+  need the user to type again. The live row is green. See
+  [docs/subagents.md](docs/subagents.md).
 - **Theme** is finished: `z1 Ocean` (white), `z1 Default` and `z1 Soft` (dark),
   released as a VSIX and documented with generated palette cards.
 
@@ -68,10 +71,6 @@ What is not done:
   network boundary.
 - **Approval modes beyond per-node `auto | ask | deny`** are not designed.
   Escalation at runtime is a separate decision and is not implemented.
-- **A background launch as the model's last step closes the turn `failed`** at
-  the step cap rather than with a final message. The child still runs and its
-  answer is delivered next turn, so no work is lost, but the user sees an error
-  line. This is loop behaviour, not subagent behaviour.
 
 The editor ships the released themes as-is: `z1 Ocean` (light), `z1 Default`
 and `z1 Soft`. `z1 Ocean` is the default light theme and `z1 Default` the

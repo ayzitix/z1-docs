@@ -12,7 +12,7 @@ and above, and refuses to run when yarn is present.
 
 **The build output lands outside the repository.**
 The gulp task writes `VSCode-linux-x64` to `path.dirname(root)` — that is,
-`~/Projects/VSCode-linux-x64`, not `z1-app/VSCode-linux-x64`. Because of that it
+`~/Projects/VSCode-linux-x64`, not `z1/VSCode-linux-x64`. Because of that it
 is not covered by the repository's `.gitignore`. `z1-build.sh` moves it into
 `z1-linux-x64/`.
 
@@ -96,7 +96,7 @@ two runs in flight, a decision can go to the wrong one. Approve module nodes
 with `deny` or `auto`, or serialise the runs.
 
 **Tools v1 has no approvals.**
-The planned tool set (`z1-tools`, a separate repository) runs `write`, `edit`,
+The tool set (`z1-tools`, the `com.z1.tools` module) runs `write`, `edit`,
 `apply_patch`, `move`, `mkdir` and `shell` as soon as the model asks; no tool
 calls the approval service. The capability grant is the only boundary, so point
 it at a workspace you are willing to let a model rewrite. Do not assume
@@ -125,6 +125,33 @@ module can still open a socket or call `fetch` directly. Only `ctx.net.request`
 enforces the manifest's host allowlist and only brokered calls are audited.
 Untrusted modules need an OS sandbox that this repository does not provide
 (`SECURITY.md`, `z1/packages/node-host/README.md`).
+
+**Cancelling a tool does not cancel the process it spawned — until it does.**
+The trap: `ToolService.call(name, args)` carried no signal, so a tool blocked in
+`ctx.process.run` could not observe a cancel, could not acknowledge it, and two
+seconds later the host SIGKILLed the **whole module worker** while the spawned
+process survived. Cancelling a turn therefore stopped nothing and killed
+unrelated concurrent work. The fix tags every child with the execution or
+service call that spawned it and kills **that owner's** group *before* sending
+`cancel` (`z1/packages/node-host/src/process-run.ts`, `host.ts`). Consequences
+worth remembering: an owned child now lives as long as its call rather than
+until dispose, and a tool that wants a child to outlive its call must use
+`process.start`.
+
+**A cancelled call and a failed call are different.**
+A child stopped by the user records `cancelled`; only a real error records
+`failed`. Collapsing them makes `/agents` lie about what happened.
+
+**`process.kill` can report success while the process lives.**
+On Windows, SIGTERM to a detached child is often swallowed, and
+`process.kill(pid, 0)` can report a dead process as alive. `reapGroup` therefore
+probes and escalates to SIGKILL, and tests assert on `tasklist /FI "PID eq <n>"`,
+never on the promise that was supposed to kill it.
+
+**Do not run `git status --ignored` in `z1-sdk`.**
+It walks `node_modules`, hits long Windows paths, and holds `.git/index.lock`
+for minutes — it has already blocked a commit once. `git status --porcelain` is
+the one to use.
 
 ## Theme
 

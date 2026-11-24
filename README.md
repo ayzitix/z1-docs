@@ -11,10 +11,11 @@ its own theme. The engine is a journaled node-graph runtime.
 
 | Repository | What it is | Stack |
 | --- | --- | --- |
-| [z1-app](https://github.com/ayzitix/z1) | the editor — VS Code 1.143.1 source with z1 branding | TypeScript, Node 24, gulp |
+| [z1](https://github.com/ayzitix/z1) | the editor — VS Code 1.143.1 source with z1 branding | TypeScript, Node 24, gulp |
 | [z1-sdk](https://github.com/ayzitix/z1-sdk) | the agent engine — a node-graph runtime, CLI, server and canvas | TypeScript, Node 24.9+, pnpm 11 |
+| [z1-cli](https://github.com/ayzitix/z1-cli) | the interactive terminal agent: REPL, slash commands, subagents | TypeScript, Node 24 |
+| [z1-tools](https://github.com/ayzitix/z1-tools) | the concrete tools as the `com.z1.tools` module: fs, search, shell, git | TypeScript |
 | [z1-theme](https://github.com/ayzitix/z1-theme) | the colour themes, shipped alone so they can be installed anywhere | JSON only |
-| `z1-tools` | the concrete tool set — **planned**, no repository yet | TypeScript |
 
 The editor integration of `z1-sdk` is planned. The canvas is currently a
 standalone app.
@@ -33,13 +34,15 @@ for an agent that needs to continue the work without rediscovering it.
   and the theme fit together.
 - **[docs/sdk.md](docs/sdk.md)** — the engine in depth: nodes, graphs, journal,
   memory, modules, providers, protocol and canvas.
+- **[docs/subagents.md](docs/subagents.md)** — child agents: the grant, the
+  background default, and what a user sees in the terminal.
 - **[docs/gotchas.md](docs/gotchas.md)** — the traps that cost hours.
 
 ## The short version
 
 ```bash
 # editor
-cd z1-app
+cd z1
 nvm use 24.18.0 && npm ci && ./z1-build.sh
 ./z1-linux-x64/bin/z1
 
@@ -49,6 +52,11 @@ pnpm install
 pnpm -C z1 build && pnpm -C z1 test
 pnpm z1 run --template agent.loop --message '[[tool:echo]] hi'
 
+# terminal agent
+cd z1-cli
+z1                       # or: node --experimental-strip-types chat.ts
+z1 --once "summarise this repo"
+
 # theme
 cd z1-theme
 bun script/check-colors.ts && npm run package
@@ -57,11 +65,12 @@ bun script/check-colors.ts && npm run package
 ## Status
 
 The editor builds and runs, and the themes are shipped in it. `z1-sdk` builds,
-passes 690 tests, and runs the agent loop with a mock model or a real
-OpenAI-compatible provider. The editor does not yet start the engine. The
-concrete tools do not exist as a repository; the SDK keeps the tools service
-contract and brokered capabilities. Details and the next steps are in
-[AGENTS.md](AGENTS.md#state).
+runs the agent loop with a mock model or a real OpenAI-compatible provider, and
+passes 1068 tests (21 fail on a Windows machine without symlink privilege and
+with a hanging `serve` suite; see [commands.md](docs/commands.md)). The terminal
+agent works against the real tools module and runs subagents in the background
+by default. The editor does not yet start the engine. Details and the next steps
+are in [AGENTS.md](AGENTS.md#state).
 
 ## License
 

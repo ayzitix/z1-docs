@@ -4,7 +4,7 @@ Every command here was read from the repository it belongs to. Times are
 estimates from the shape of the task, not measurements.
 
 - [Agent engine (`z1-sdk`)](#agent-engine-z1-sdk)
-- [Editor (`z1-app`)](#editor-z1-app)
+- [Editor (`z1`)](#editor-z1)
 - [Theme (`z1-theme`)](#theme-z1-theme)
 
 ---
@@ -33,7 +33,7 @@ uses. A missing or older Node fails at import time, not at install time.
 ```bash
 pnpm install
 pnpm -C z1 build                 # tsc -b tsconfig.json; no output on success
-pnpm -C z1 test                  # vitest; Test Files 77 passed, Tests 690 passed
+pnpm -C z1 test                  # vitest; 1068 passed, 101 files (21 fail on Windows, see below)
 pnpm z1:canvas:build             # production canvas bundle (for studio)
 ```
 
@@ -142,7 +142,71 @@ The journal is a SQLite file; `sqlite3 .z1/runs.db '.tables'` shows `runs`,
 
 ---
 
-## Editor (`z1-app`)
+## Terminal agent (`z1-cli`)
+
+The interactive agent: a REPL over the same engine, in your current directory.
+Unlike the `pnpm z1` commands above, it is a normal terminal program, not a
+one-shot graph run.
+
+### Requirements
+
+Node 24 and a built `z1-sdk` checkout beside it — the CLI imports the SDK
+sources through `tsx`, it does not bundle them.
+
+### Commands
+
+```bash
+cd z1-cli
+z1                          # interactive; or:
+node --experimental-strip-types chat.ts
+z1 --once "summarise this repo"
+z1 --help
+```
+
+| Flag | Meaning |
+| --- | --- |
+| `--model <provider/model>` | model for this session (also `/model`) |
+| `--view compact\|medium\|full` | how much of each tool call is shown (also `/view`) |
+| `--once "<prompt>"` | answer one prompt, print it, exit |
+| `--help` | print usage and the subagent policy, exit |
+
+### Slash commands
+
+| Command | What it does |
+| --- | --- |
+| `/agents` | open the subagent picker: list, open a transcript, stop one |
+| `/agents <n\|runId>` | print that child's transcript |
+| `/agents stop <n\|runId>` | stop a background child |
+| `/tools` | picker for enabling and disabling tools |
+| `/sessions` | switch, rename or delete a session |
+| `/view` | compact, medium or full output |
+| `/model` | choose the model |
+| `/new` | new conversation; **running children survive** |
+| `/exit` | cancel running children, wait briefly, exit |
+
+`/agents` is an overlay rather than printed output so it can be opened **while a
+turn is running**. Inside it: arrows and digits move, `Enter` opens a
+transcript, `x` stops the selected child and keeps the picker open, `Esc`
+closes without touching the draft.
+
+### Notes
+
+- The prompt is composited, not a single line: `Esc` clears it, `Ctrl-C`
+  exits (twice if armed), `Ctrl-D` on an empty prompt also exits.
+- A settled background child's answer is delivered at the start of your next
+  message, not mid-turn.
+- `Z1_NO_WAIT=1` with `--once` leaves background children running instead of
+  waiting for them; the run ids are printed.
+- Tests run on `tsx`, one file per behaviour:
+
+```bash
+cd z1-cli
+node ../z1-sdk/node_modules/tsx/dist/cli.mjs --tsconfig tsconfig.runtime.json tests/agents.test.mts
+```
+
+---
+
+## Editor (`z1`)
 
 ### Requirements
 

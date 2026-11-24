@@ -5,7 +5,7 @@ its client (planned).
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│ z1-app — the editor                                      │
+│ z1 — the editor                                          │
 │   VS Code 1.143.1 source + z1 branding                   │
 │   extensions/theme-defaults  ← the theme                 │
 │                                                          │
@@ -46,14 +46,14 @@ its client (planned).
                             │
                             ▼
 ┌──────────────────────────────────────────────────────────┐
-│ z1-tools — planned, separate repository                  │
-│   concrete read/write/shell/git/todo tools as a module   │
+│ z1-tools — the `com.z1.tools` module                     │
+│   fs, search, shell and git behind one `tools` service   │
 └──────────────────────────────────────────────────────────┘
 ```
 
 ## Editor
 
-`z1-app` is the VS Code source tree at 1.143.1 with VSCodium's build patches and
+`z1` is the VS Code source tree at 1.143.1 with VSCodium's build patches and
 z1's branding. The application is compiled from `src/`, not wrapped.
 
 What z1 adds on top of upstream:
@@ -109,6 +109,28 @@ The server exposes the same runtime over JSON-RPC/WebSocket:
 `approval.respond`, `artifact.get` and `module.*`. `z1 studio` serves the built
 canvas from that server.
 
+### Subagents
+
+A subagent is the engine calling itself with a smaller surface. The parent's
+`subagent` tool resolves a **tool grant** (a filtered subset of the parent's
+tools), starts a **child run** in the same journal, and returns either the
+child's text or a run id.
+
+```
+parent run ──subagent──▶ grant resolution ──▶ child run ──▶ result text
+    │                      (enable/disable,       │            │
+    │                       no nesting,           │            └─▶ tool result (wait: true)
+    │                       unknown name fails)   │            └─▶ delivery block (next turn)
+    └── budget: 4 concurrent, 8 per session ──────┘
+```
+
+The child is an ordinary run with its own graph, so it inherits the journal,
+the approval path and the module sandbox. What it does not inherit is the
+parent's conversation, context or tools beyond the grant.
+
+Details, including the background/`wait` split and cancellation, are in
+[subagents.md](subagents.md).
+
 Details are in [sdk.md](sdk.md).
 
 ## Theme
@@ -126,6 +148,6 @@ surfaces, black accents, no hue that does not carry a state.
 | --- | --- |
 | Telemetry endpoints and update feed | removed by configuration |
 | Microsoft Marketplace | Open VSX instead |
-| Concrete agent tools | a separate repository (`z1-tools`, planned) |
+| Concrete agent tools | a separate repository (`z1-tools`, the `com.z1.tools` module) |
 | Editor ↔ engine integration | planned; the canvas is standalone for now |
 

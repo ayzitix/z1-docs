@@ -340,7 +340,7 @@ events to stderr. Commands are listed with requirements and expected output in
 
 ## Tests
 
-`pnpm -C z1 test` runs 690 tests in 77 files with vitest: graph validation,
+`pnpm -C z1 test` runs the workspace suite with vitest: graph validation,
 executor semantics, cache, resume, fork, memory, prompt rendering, module store
 and grants, real worker children (including crash and timeout), provider retry
 against a local SSE server, protocol and server end to end, and the CLI. The
@@ -350,8 +350,9 @@ gates.
 ## Limitations
 
 - **No concrete tools in this repository.** The SDK keeps the tools service
-  contract and brokered capabilities; `z1-tools` is planned as a separate
-  repository. The built-in tool service is a mock.
+  contract and brokered capabilities; the tools themselves live in `z1-tools`
+  as `com.z1.tools`, which declares one `tools` service and no nodes. The
+  built-in tool service here is still a mock.
 - **No editor integration.** The canvas and server are standalone.
 - **No OS sandbox** for untrusted modules (see above).
 - **Canvas is local**: one server token, no multi-user model.

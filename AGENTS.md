@@ -15,18 +15,23 @@ with an agent engine of its own. It is not a wrapper around a binary and not a
 plugin: the editor source is in the repository, and the engine is a graph
 runtime, not a chat loop.
 
-Three repositories, one planned:
+Repositories, as they exist today:
 
 | Repository | Local path | Purpose |
 | --- | --- | --- |
-| `z1-app` | `~/Projects/z1-app` | the editor |
-| `z1-sdk` | `~/Projects/z1-sdk` | the agent engine: graph runtime, CLI, server, canvas |
-| `z1-theme` | `~/Projects/z1-theme` | the colour themes |
-| `z1-tools` | — | the concrete tools; **planned, no repository yet** |
+| `z1` | `~/Documents/z1-projects/z1` | the editor (VS Code 1.143.17502) |
+| `z1-sdk` | `~/Documents/z1-projects/z1-sdk` | the agent engine: graph runtime, CLI, server, canvas |
+| `z1-cli` | `~/Documents/z1-projects/z1-cli` | the interactive terminal agent, `chat.ts` |
+| `z1-tools` | `~/Documents/z1-projects/z1-tools` | the concrete tools: `com.z1.tools` |
+| `z1-theme` | `~/Documents/z1-projects/z1-theme` | the colour themes |
+| `z1-web`, `z1-providers` | `~/Documents/z1-projects/` | web surface; provider definitions |
 
-The editor is built from `z1-app`. The engine is a separate process or library
+The editor is built from `z1`. The engine is a separate process or library
 from `z1-sdk`. The theme ships from `z1-theme` and is already vendored into the
 editor at `extensions/theme-defaults`.
+
+The editor repository was called `z1-app` in earlier notes and paths in this
+documentation may still say so. The directory and `package.json` name is `z1`.
 
 ## State
 
@@ -35,11 +40,18 @@ What is done:
 - **Editor** builds, runs and is branded. Landing screen, watermark, Carbon
   product icons, square corners, Open VSX gallery, no command center in the
   title bar, Welcome page removed. VS Code 1.143.1.
-- **Engine** builds, passes 690 tests in 77 files, and runs the agent loop with
-  the mock model or a real OpenAI-compatible provider. It has a node/graph
-  contract, executor, SQLite journal with resume and fork, branch memory, prompt
-  nodes, sandboxed modules with worker services, a JSON-RPC server, a canvas and
-  a CLI. The upstream DeepSeek Harness build keeps its 10 gates.
+- **Engine** builds and, on a Windows machine without symlink privilege, runs
+  **1068 passing tests in 101 files** (21 failing, all environmental — see
+  "Verified" below). It runs the agent loop with the mock model or a real
+  OpenAI-compatible provider. It has a node/graph contract, executor, SQLite
+  journal with resume and fork, branch memory, prompt nodes, sandboxed modules
+  with worker services, a JSON-RPC server, a canvas and a CLI. The upstream
+  DeepSeek Harness build keeps its 10 gates.
+- **Terminal agent** (`z1-cli`) works against real tools: 14 of 17 test files
+  pass, the other three fail on a home-path override in this environment.
+- **Subagents** run and are reviewed: a parent can delegate to a child agent
+  with a narrowed tool grant, and children run **in the background by default**
+  (`wait: true` restores blocking). See [docs/subagents.md](docs/subagents.md).
 - **Theme** is finished: `z1 Ocean` (white), `z1 Default` and `z1 Soft` (dark),
   released as a VSIX and documented with generated palette cards.
 
@@ -48,13 +60,18 @@ What is not done:
 - **The editor does not start the engine.** No panel, no process management, no
   client. This is the next piece of work, and it should start with the smallest
   slice: start the engine, show its status, send one prompt.
-- **`z1-tools` does not exist.** The SDK keeps the tools service contract and
-  brokered capabilities (`fs.list`, `fs.stat`, `process.run`, worker adapters);
-  the built-in tool service is a mock.
+- **`z1-tools` is real but thin.** `com.z1.tools@0.1.9` declares **no nodes**
+  and one `tools` service; `shell` and `git` exist as tools behind it. It does
+  not yet accept `ctx.signal`, so a tool blocked in `ctx.process.run` cannot
+  unwind on cancel — the host now kills the child process instead.
 - **No OS sandbox** for untrusted modules. Node's permission model is not a
   network boundary.
 - **Approval modes beyond per-node `auto | ask | deny`** are not designed.
   Escalation at runtime is a separate decision and is not implemented.
+- **A background launch as the model's last step closes the turn `failed`** at
+  the step cap rather than with a final message. The child still runs and its
+  answer is delivered next turn, so no work is lost, but the user sees an error
+  line. This is loop behaviour, not subagent behaviour.
 
 The editor ships the released themes as-is: `z1 Ocean` (light), `z1 Default`
 and `z1 Soft`. `z1 Ocean` is the default light theme and `z1 Default` the
@@ -118,7 +135,7 @@ produced them.
 ### Only change what you were asked to change
 
 Editing the theme means editing `z1-theme`. Editing the editor means editing
-`z1-app`. Editing the engine means editing `z1-sdk`. A theme cannot fix a widget
+`z1`. Editing the engine means editing `z1-sdk`. A theme cannot fix a widget
 drawn by the editor, and an editor CSS patch is not a theme change.
 
 ### Facts over guesses
@@ -135,7 +152,7 @@ unknown, write that it is unknown. Do not fill gaps with plausible details.
 | Documentation | English, in this repository. Code comments in English. |
 | Commits | `area: summary` — e.g. `sdk: fix the fork cursor`. Lowercase after the colon. |
 | Areas | `editor`, `sdk`, `theme`, `docs`. |
-| Versioning | `z1-app` follows the VS Code version. `z1-sdk` is `0.x` until the editor integration lands. `z1-theme` is independent. |
+| Versioning | `z1` follows the VS Code version. `z1-sdk` is `0.x` until the editor integration lands. `z1-theme` is independent. |
 | Theme colors | White surfaces, black accents, no hue that is not a state. See `docs/theme.md`. |
 | Generated files | `z1/packages/*/lib`, `z1/apps/*/dist` and `packages/client/src/**/generated/**` are generated. Regenerate them, never edit them. |
 | Images in docs | Generated from data by a script, never screenshots. |
@@ -145,7 +162,7 @@ unknown, write that it is unknown. Do not fill gaps with plausible details.
 ## Where things live
 
 ```
-z1-app/
+z1/
   src/vs/                     editor, workbench, platform
   src/vs/workbench/browser/parts/editor/z1Landing.ts      landing screen
   src/vs/workbench/browser/parts/editor/z1Watermark.ts    empty-editor mark
@@ -161,12 +178,25 @@ z1-sdk/
   z1/packages/prompt                  sections, role presets, stacking, hashing
   z1/packages/journal                 SQLite journal, forks, blobs
   z1/packages/memory, agent           branch context; the agent loop as a graph
+  z1/packages/subagent                child agents: grant, run, budget, result
   z1/packages/module, node-host       modules, grants, worker sandbox
   z1/packages/provider, template, bootstrap   providers, templates, one runtime
   z1/packages/protocol, server        JSON-RPC over WebSocket; headless server
   z1/apps/cli, canvas                 the `z1` command and the React Flow canvas
   z1/SPEC.md, z1/TASKS.md             contract and milestone board
   packages/*, apps/*                  the upstream engine
+
+z1-cli/
+  chat.ts                     the interactive agent: REPL, commands, pickers
+  agents.ts, agents-view.ts   the subagent registry and its rows
+  subagent-host.ts            the host adapter between the SDK and the registry
+  chat-canvas.ts              pure composer layout and caret geometry
+  exit-policy.ts, once-policy.ts, agents-command.ts   testable pure decisions
+  tests/*.test.mts            one file per behaviour, run with tsx
+
+z1-tools/
+  index.js, lib/*.js          the `tools` service: fs, search, shell, git
+  manifest.json               declares services, nodes and capabilities
 
 z1-theme/
   themes/z1-ocean.json        light: white surfaces, black accents
@@ -195,7 +225,7 @@ than from the last conversation.
 
 Summarised here, detailed in [docs/gotchas.md](docs/gotchas.md):
 
-- `z1-app` needs **Node 24** with the same major as `.nvmrc`; the install aborts
+- `z1` needs **Node 24** with the same major as `.nvmrc`; the install aborts
   otherwise. `npm` must be below 13, and yarn must not be present.
 - The editor build writes `VSCode-linux-x64` **next to** the repository, not
   inside it. `z1-build.sh` moves it.
@@ -210,3 +240,10 @@ Summarised here, detailed in [docs/gotchas.md](docs/gotchas.md):
   only.
 - A theme cannot color the watermark, the space behind modern panels, or window
   buttons. Those are editor CSS, not theme keys.
+- **Never run `git status --ignored`** in `z1-sdk`. It walks `node_modules`, hits
+  long paths, and holds `.git/index.lock` for minutes; it has already blocked a
+  commit. Use `git status --porcelain`.
+- **On Windows a `process.kill` can lie.** SIGTERM to a detached child is often
+  swallowed while Node reports success, and `process.kill(pid, 0)` can report a
+  dead process as alive. Verify with `tasklist /FI "PID eq <n>"`, not with the
+  signal call.

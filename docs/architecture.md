@@ -131,7 +131,9 @@ parent's conversation, context or tools beyond the grant.
 Details, including the background/`wait` split and cancellation, are in
 [subagents.md](subagents.md).
 
-Details are in [sdk.md](sdk.md).
+The engine tour is in [sdk.md](sdk.md); the contracts for ownership, state, the
+executor and the journal are in [engineering.md](engineering.md); failure
+contracts and their remaining limits are in [hardening.md](hardening.md).
 
 ## Theme
 

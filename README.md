@@ -34,6 +34,12 @@ for an agent that needs to continue the work without rediscovering it.
   and the theme fit together.
 - **[docs/sdk.md](docs/sdk.md)** — the engine in depth: nodes, graphs, journal,
   memory, modules, providers, protocol and canvas.
+- **[docs/engineering.md](docs/engineering.md)** — the engineering handbook: who
+  owns what, where state lives, and the contracts the executor, journal, prompt,
+  modules and server keep.
+- **[docs/hardening.md](docs/hardening.md)** — failure contracts from the
+  hardening pass: constants, error strings, the test that pins each, and the
+  limits that remain.
 - **[docs/subagents.md](docs/subagents.md)** — child agents: the grant, the
   background default, and what a user sees in the terminal.
 - **[docs/gotchas.md](docs/gotchas.md)** — the traps that cost hours.

@@ -148,6 +148,36 @@ On Windows, SIGTERM to a detached child is often swallowed, and
 probes and escalates to SIGKILL, and tests assert on `tasklist /FI "PID eq <n>"`,
 never on the promise that was supposed to kill it.
 
+**A checkpoint is recognised by its wrapper, not by its heading.**
+`isCheckpoint` (`z1/packages/nodes/src/context.ts`) wants a `user` message, the
+preamble, `<compacted-summary>`…`</compacted-summary>`, and the writer tag
+`<!-- z1 checkpoint -->` or the legacy heading `## Primary Request and Intent`.
+A marker quoted inside a tool result is not a checkpoint; neither is a reworded
+heading without the tag. A fully forged wrapper does pass — the tag is not a
+signature. Contracts in [hardening.md](hardening.md#prompt-compaction).
+
+**An approval answered after the run moved on is an error, not a no-op.**
+`approval.respond` for a decided approval is `1003`, `unknown approval: <id>`;
+for an id abandoned by `run.cancel` or a settle without a decision it is `1004`,
+`run <id> is not waiting for approval` — and only to the connection that was
+asked. A stale UI that treats the error as success will believe it decided
+something. See
+[hardening.md](hardening.md#approval-handshake-over-the-server).
+
+**Glob patterns have a length and a cost limit.**
+`z1-tools` refuses `glob.pattern` over `MAX_GLOB_PATTERN_LENGTH = 1024` and any
+glob priced over `MAX_GLOB_COST = 8_000_000`, with `glob.pattern is too long (N
+chars, limit 1024)` or `... is too expensive; simplify the alternations or
+wildcards`. The price is calibrated on a 200-character name, so a permitted
+three-star pattern is still slow on a very long path. See
+[hardening.md](hardening.md#z1-tools-glob-grep-and-gitignore).
+
+**The module audit log cannot see its own tail.**
+The hash chain detects an edited, reordered or spliced entry, but dropping the
+last entries leaves a shorter chain that verifies from genesis. The file's length
+is part of the trust boundary; "audit passes" does not mean "nothing was
+removed". See [hardening.md](hardening.md#module-audit-chain).
+
 **Do not run `git status --ignored` in `z1-sdk`.**
 It walks `node_modules`, hits long Windows paths, and holds `.git/index.lock`
 for minutes — it has already blocked a commit once. `git status --porcelain` is

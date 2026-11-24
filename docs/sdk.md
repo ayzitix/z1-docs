@@ -81,6 +81,10 @@ approval service before `execute`; `deny` fails without running, and a cached
 output from another instance cannot satisfy it. Timeouts default to 120 s;
 `retry` is linear backoff on thrown errors.
 
+Contracts and failure modes: readiness groups, the cache key and the
+exactly-one-flow-output check are stated with their enforcing symbols in
+[engineering.md](engineering.md#the-node-contract).
+
 ## Graph document
 
 ```ts
@@ -120,8 +124,9 @@ Cycles are legal only inside `z1.flow.loop`, `z1.flow.map` and
 5. Every config and output value is parsed with its zod schema. A parse failure
    fails the node, not the run silently.
 6. The per-run cache key is a sha256 of canonical `{type, version, config,
-   inputs, input}`. A hit emits `node.cached` and reuses outputs; `cacheable:
-   false` disables it.
+   inputs, input, path}` — `path` included, so the same node at two paths is two
+   executions. A hit emits `node.cached` and reuses outputs; `cacheable: false`
+   disables it.
 7. Timeout, retry, approval and cancellation behave as described above.
 8. Nested runs share services, registry and journal, and prefix the execution
    path with the iteration label. A fork inside a loop therefore replays only
@@ -135,6 +140,10 @@ Built-in node ids are namespaced `z1.`: `core.input/output/const/template/get/
 concat/message/last/merge/value/fail`, `flow.if/loop/map`, `graph.subgraph`,
 `llm.model/chat`, `tool.call`, `memory.context`, `prompt.section/stack/text/
 context`. The full port table is `z1/SPEC.md` §7.
+
+Contracts and failure modes: what the executor promises and does not, and what a
+deadlock reports, is in
+[engineering.md](engineering.md#what-the-executor-promises-and-does-not).
 
 ## Journal, resume and fork
 
@@ -155,13 +164,19 @@ synchronous.
   [gotchas.md](gotchas.md).
 - Blobs are content-addressed and used for artifacts.
 
+Contracts and failure modes: the two numberings, fork depth and the
+broken-database error are in [engineering.md](engineering.md#journal); the
+open-failure contract is in [hardening.md](hardening.md#journal-open-failure).
+
 ## Branch memory
 
 `@z1/memory` turns the run tree into context: the ancestor spine (root first),
 siblings forked from the same parent, this run's recent node outputs, and
-in-memory summaries. The envelope is rendered under an explicit untrusted-history
-heading and capped (4000 characters, 8 recent nodes, 3 ancestor nodes by
-default). A sibling records what was tried, not what is true.
+in-memory summaries. The envelope is capped (4000 characters, 8 recent nodes, 3
+ancestor nodes by default) and reaches the model as one system message headed
+`Context from the branch tree:`. A sibling records what was tried, not what is
+true. The shape and drop order are in
+[engineering.md](engineering.md#memory-envelope-and-compaction).
 
 `z1.memory.context` is a root node that produces `text` and `messages`;
 `z1 memory context <runId>` prints the same envelope for inspection. Summaries
@@ -184,6 +199,10 @@ The hash is a node output, so it is journaled with `node.completed`. The prompt
 behind a branch is reproducible from the journal. `@z1/prompt` also holds the
 default sections and role presets (`DEFAULT_SECTIONS`, `ROLE_SECTIONS`); the
 agent graph passes them through `z1.prompt.section`.
+
+Contracts and failure modes: slots, drop order, hashing and role presets are in
+[engineering.md](engineering.md#prompt-stack); checkpoint identity and
+`maxCompactions` are in [hardening.md](hardening.md#prompt-compaction).
 
 ## Modules
 
@@ -237,6 +256,12 @@ disables only services and is not cached.
 direct socket or `fetch` inside a worker. Only `ctx.net` enforces the manifest's
 host allowlist. Untrusted modules need an OS-level sandbox that this repository
 does not provide (`SECURITY.md`).
+
+Contracts and failure modes: grant matching, the store lifecycle and the
+worker/host split are in [engineering.md](engineering.md#modules); the
+capability and audit contracts are in
+[hardening.md](hardening.md#module-capabilities) and
+[hardening.md](hardening.md#module-audit-chain).
 
 ## Providers
 
@@ -310,6 +335,11 @@ server generates one when `--token` is absent. `z1 serve --json` prints
 `{ url, token, port }` and nothing else. `z1 studio` additionally serves the
 built canvas from the same process and opens a browser unless `--no-open`.
 
+Contracts and failure modes: the method map, subscription and prune rules are in
+[engineering.md](engineering.md#server-protocol); the approval handshake is in
+[hardening.md](hardening.md#approval-handshake-over-the-server) and the frame
+rules in [hardening.md](hardening.md#json-rpc-frame-validation).
+
 ## Canvas
 
 `z1/apps/canvas` is a React + React Flow editor: node palette from
@@ -346,6 +376,10 @@ and grants, real worker children (including crash and timeout), provider retry
 against a local SSE server, protocol and server end to end, and the CLI. The
 canvas has a browser end-to-end test. Upstream `pnpm run build` keeps its 10
 gates.
+
+Contracts and failure modes: the doubles, the environmental failures and what a
+green claim means are in
+[engineering.md](engineering.md#testing-strategy).
 
 ## Limitations
 

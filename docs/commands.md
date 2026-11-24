@@ -177,6 +177,7 @@ z1 --help
 | `/agents` | open the subagent picker: list, open a transcript, stop one |
 | `/agents <n\|runId>` | print that child's transcript |
 | `/agents stop <n\|runId>` | stop a background child |
+| `/context` | what the turn was built from: sources, tokens, read time |
 | `/tools` | picker for enabling and disabling tools |
 | `/sessions` | switch, rename or delete a session |
 | `/view` | compact, medium or full output |
@@ -188,6 +189,96 @@ z1 --help
 turn is running**. Inside it: arrows and digits move, `Enter` opens a
 transcript, `x` stops the selected child and keeps the picker open, `Esc`
 closes without touching the draft.
+
+### Project context
+
+The agent reads `AGENTS.md` — that exact name and no other — and puts the
+text into the system prompt of every turn, so the model starts from what the
+project has decided instead of guessing it.
+
+Code: `z1-cli/project-context.ts` (discovery, limits, normalisation),
+`z1-cli/chat.ts` (the system stack and `/context`),
+`z1-cli/tests/project-context.test.mts`.
+
+**Where it is read from.** From the working directory upwards to the git root
+(`findRepoRoot`, `z1-sdk/z1/packages/session/src/paths.ts`), one `AGENTS.md` per
+directory. The files are then concatenated from the root **down** to the working
+directory, so the nearest file comes last in the text — naturally the
+strongest where two files disagree. Outside a repository — no `.git` in any
+directory above — only the working directory's own file is read; the walk does
+not go higher.
+
+**Limits.** Two, both measured in bytes:
+
+| Limit | Value | What happens when it is hit |
+| --- | --- | --- |
+| one file | 32768 bytes (32 KiB) of text | only that much is used, cut on a character boundary and marked on a line of its own after a blank line: `… [z1: AGENTS.md truncated at 32768 bytes] …` |
+| the whole chain | 65536 bytes (64 KiB) | the files furthest from the working directory are the ones dropped, and they are named |
+
+The marker is a line of text, not a log line, and it costs about 50 bytes on top
+of the per-file limit — so a cut file's block is slightly larger than 32768
+bytes. That is deliberate: a model holding a prefix must know it holds a prefix,
+and a prompt that stops mid-sentence in silence invites it to invent the rest.
+At a small enough limit the marker is the whole body of the block — the heading
+that names the file stays — and only a chain budget that drops every file
+leaves a section that is nothing but the marker.
+
+An empty file — or one holding only whitespace and a BOM — adds nothing at all
+when it was read whole: there is no heading without a body. A file that was cut
+is never silent, though: when the text that survives is only whitespace, the
+marker still stands in its block.
+
+What the chain budget dropped is named, farthest first, relative to the
+repository root and comma-separated. The noun follows the count, and the budget
+prints in bytes below 1 KiB:
+
+```
+[z1: 1 earlier project context file omitted: 2 KiB budget: AGENTS.md]
+[z1: 2 earlier project context files omitted: 512 bytes budget: AGENTS.md, a/AGENTS.md]
+```
+
+Those two are file limits, not the prompt's: the stack this section joins has a
+budget of its own, and the CLI raises it to take the section (see below).
+
+**Normalisation.** A UTF-8 BOM is stripped and CRLF becomes LF, so the same text
+does not change just because a file was checked out on Windows. The per-file
+limit counts those normalised bytes, not the file on disk: a CRLF file that
+fits once its line endings are gone is not cut. Reading costs at most
+`2×limit+4` disk bytes per file — about 64 KiB at the default — which is enough
+normalised text to fill the limit.
+
+**The stack budget.** The prompt stack has a ceiling of its own: 6000 tokens by
+default (`z1-sdk/z1/packages/prompt/src/stack.ts`). Everything the CLI adds —
+the tool inventory, the session state and this project context — rides in one
+non-required section, and a stack that has to cut drops only non-required
+sections, that one before all the others. The CLI therefore raises the ceiling
+by the section's own estimate plus a small margin, so this section fits with
+room for the current tool inventory: a long `AGENTS.md` cannot push the tool
+list out of the prompt. With no
+`AGENTS.md` there is nothing to make room for, and the stack keeps its default.
+
+**When it is read.** On every graph build, which is every turn. There is no
+reload command and nothing to restart: an edit to `AGENTS.md` applies from the
+next turn. `/context` reports what the turn was built from: the sources, how
+many files the budget dropped (`N earlier omitted`), the token estimate and the
+time the files were read. With a marker-only chain, the sources it lists are
+the dropped files' paths, so nothing disappears without a name.
+
+**Not in this slice.** No global level, so `~/.config/z1/AGENTS.md` is not read.
+No `CLAUDE.md` fallback, so a repository carrying only that file gets no project
+context. No `@import`: the text is taken as written. No subdirectory files on
+demand: an `AGENTS.md` below the working directory is not picked up while the
+agent works on files there.
+
+Planned: the global level and the on-demand subdirectory files are later slices.
+
+**Resume.** The project context is part of the prompt, so it is inside the
+digest the run records. `z1 run --resume <runId>` after editing `AGENTS.md` is
+therefore a different input and fails with `RESUME_MISMATCH` rather than
+replaying with the old text; see [sdk.md](sdk.md#journal-resume-and-fork). That
+is intended: the alternative is a resume that answers from context the file no
+longer holds. The interactive CLI never meets it, because every turn is a new
+run.
 
 ### What the transcript looks like
 

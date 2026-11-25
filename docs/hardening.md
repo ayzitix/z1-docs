@@ -378,6 +378,45 @@ whatever the case (win32)".
 **Residual.** `pointsOutside` strips a `\\?\`/`\??\` kernel prefix and resolves lexically; an
 unreadable target is not labelled, and a junction with an empty target prints as a bare symlink.
 
+## Subagent hand-off and time budget
+
+**Was.** `promptTokensOf` looked for `promptTokens`/`totalTokens`, while the shipped `ChatUsage`
+is `{ inputTokens, outputTokens }`, so the 75% hand-off never fired in production and the fixed
+24-step cap was the real limit. When it did fire, `controller.abort()` made the graph resolve
+`cancelled`, and `settleChild` returned in the cancelled branch before the hand-off branch — no
+report. `resultText` also relabelled any `partial` with steps as a step cap. The report transcript
+scraped every completed node, so it contained both `loop/N/chat` and `loop/N/assistantMsg` (one
+duplicate per turn) and put the system message after the user message.
+
+**Now.** `promptTokensOf` accepts `inputTokens`/`input_tokens` first and the loop budget node's
+`tokens` estimate is a floor: `max(usage, estimate)`. The working limits are
+`SUBAGENT_HANDOFF_RATIO = 0.75` and `DEFAULT_SUBAGENT_TIME_BUDGET_MS = 2_400_000` (40 minutes);
+either stops the child, makes one tool-free `llm.chat` capped at
+`SUBAGENT_REPORT_TIMEOUT_MS = 60_000`, and returns `partial` with `context_limit` or `time_limit`
+and a report asking **Done / Found / Not done / Continue / Problems**. A hard `timeoutMs` defaults
+to the budget plus `DEFAULT_SUBAGENT_REPORT_GRACE_MS = 120_000`; an explicit shorter value wins
+and is `child_timeout` with no report. `DEFAULT_SUBAGENT_MAX_STEPS = 10_000` is a runaway guard;
+`MAX_SUBAGENT_MAX_STEPS` rejects a higher explicit cap as `invalid_input`. `timeMinutes` (1–120,
+model-facing) can only lower the host budget. The report transcript is the loop's
+`messagesMerge` value, so it is `[system, user, …]` with one assistant per turn and resolvable
+`toolCallId`s. A host cancel during the report wins and returns `cancelled`; a graph that
+completed keeps its real answer even if a timer fired during the `run.completed` append, and the
+row and last event stay `completed`.
+
+**Pinned by** `handoff.spec.ts` ("inputTokens crossing 7 500 makes one report: partial/context_limit",
+"a host abort during the report turn is a cancellation, not a report", "the report transcript is a
+conversation a provider would accept"), `time-budget.spec.ts` ("ends the run with one report:
+partial/time_limit", "a timer firing during the run.completed append keeps the real answer",
+"the first budget to fire owns the report, in either order") and `background.spec.ts`
+("a cancel() during the hand-off report wins over the report").
+
+**Residual.** The budget estimate cannot see tool schemas, so a tool-heavy child with no usage
+can cross 75% later than the true prompt size. An explicit `timeoutMs` shorter than the budget
+silently disables the report (documented and tested). The report cap abandons rather than
+cancels the provider call, because `LlmService.chat` takes no signal. The report transcript ends
+one turn behind the stop: the aborted turn is not synthesised, because its `toolCalls` have no
+tool results; its text reaches the parent as the kept `partial` text.
+
 ## Residual limits, in one place
 
 | Limit | Why it stays | Pinned by |

@@ -442,8 +442,22 @@ The contract is `z1/packages/subagent/src/tool.ts`; the terminal view is
   before the child starts. A child cannot start a grandchild: the delegation tool is rejected from
   a child's grant at resolution time (`DEFAULT_SUBAGENT_MAX_DEPTH = 1`).
 - **Budget.** `DEFAULT_SUBAGENT_MAX_CHILDREN = 4` running, `DEFAULT_SUBAGENT_MAX_TOTAL = 8`
-  started per session, `DEFAULT_SUBAGENT_MAX_STEPS = 24`, `DEFAULT_SUBAGENT_TIMEOUT_MS = 240_000`.
-  A slot is reserved before the child begins and released when it ends.
+  started per session. The working limits are the context hand-off at
+  `SUBAGENT_HANDOFF_RATIO = 0.75` of the child window and a soft wall-clock budget,
+  `DEFAULT_SUBAGENT_TIME_BUDGET_MS = 2_400_000` (40 minutes); either ends the child with
+  `partial` and a tool-free report. `DEFAULT_SUBAGENT_MAX_STEPS = 10_000` is only a runaway
+  guard, and `MAX_SUBAGENT_MAX_STEPS` rejects a higher explicit cap as `invalid_input`.
+  `timeMinutes` (1–120, model-facing) may only lower the host budget. The hard
+  `timeoutMs` defaults to the child budget plus `DEFAULT_SUBAGENT_REPORT_GRACE_MS = 120_000`;
+  an explicit shorter value wins and is `child_timeout` with no report. A completed run
+  beats a timer that fires while its terminal event is being appended.
+- **Hand-off report.** The child's merged transcript is read from the loop's
+  `messagesMerge` value, not scraped per node, so the report request is `[system, user, …]`
+  with one assistant message per turn and resolvable `toolCallId`s. The report is one
+  `llm.chat` with `tools: []`, capped at `SUBAGENT_REPORT_TIMEOUT_MS = 60_000`; it asks
+  Done / Found / Not done / Continue / Problems. If it fails or returns empty text, the
+  child's last text is kept and the detail says the report could not be produced.
+  A host cancel during the report wins and returns `cancelled` with no report.
 - **Background is the default.** Without `wait: true` the call returns
   `{ runId, status: 'running' }` in the same step. `z1.tool.background` treats a step as a
   hand-off only when every tool result parses to `{ status: "running", runId: <string> }`; one

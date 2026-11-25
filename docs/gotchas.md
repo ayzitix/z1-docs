@@ -183,6 +183,35 @@ It walks `node_modules`, hits long Windows paths, and holds `.git/index.lock`
 for minutes — it has already blocked a commit once. `git status --porcelain` is
 the one to use.
 
+## Subagents
+
+**The hand-off reads `inputTokens`, not `promptTokens`.**
+`ChatUsage` is `{ inputTokens, outputTokens }`; a provider that reports only
+`promptTokens` is the exception. `promptTokensOf` accepts both, and falls back
+to the loop budget node's `tokens` estimate (`max(usage, estimate)`). The
+estimate cannot see tool schemas, so a tool-heavy child with no usage can cross
+75% later than the true prompt size. See
+[subagents.md](subagents.md#lifetime-and-ownership).
+
+**An explicit `timeoutMs` shorter than the soft budget disables the report.**
+The hard guard wins and returns `child_timeout` with no report, because an
+absolute deadline is not renegotiable. Leave `timeoutMs` unset to get the
+default budget + two-minute grace; set `timeBudgetMs` (or the model-facing
+`timeMinutes`) to choose the working time.
+
+**The report transcript is the loop's `messagesMerge`, not a scrape of every
+completed node.** Both `loop/N/chat` and `loop/N/assistantMsg` publish a message,
+so scraping duplicates every assistant turn; `loop/N/outValue` carries no
+`value` at all (`z1.core.output` declares no outputs). A report built from the
+scrape puts the system prompt after the user message and is the request a
+provider rejects just when the child has 25% of its window left.
+
+**A completed run beats a timer that fires while its terminal event is being
+appended.** `Journal.append` may return a promise, so the timer can land inside
+`run.completed`; `settleChild` checks `result.status === 'completed'` before the
+graceful branch and keeps the real answer. Do not move that check after the
+budget logic.
+
 ## Theme
 
 **`vsce` does not validate a theme.**

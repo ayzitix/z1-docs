@@ -39,8 +39,28 @@ Limits, from `z1/packages/subagent/src/types.ts`:
 | `MAX_SUBAGENT_TOOL_NAME_LENGTH` | 128 | one tool name |
 | `DEFAULT_SUBAGENT_MAX_CHILDREN` | 4 | concurrent children |
 | `DEFAULT_SUBAGENT_MAX_TOTAL` | 8 | children started per session |
-| `DEFAULT_SUBAGENT_MAX_STEPS` | 24 | steps one child may take |
+| `DEFAULT_SUBAGENT_MAX_STEPS` | 10 000 | runaway guard, not the working limit |
+| `MAX_SUBAGENT_MAX_STEPS` | 10 000 | an explicit `maxSteps` above this is `invalid_input` |
 | `DEFAULT_SUBAGENT_MAX_DEPTH` | 1 | **no nested subagents** |
+| `SUBAGENT_HANDOFF_RATIO` | 0.75 | stop at 75% of the context window |
+| `DEFAULT_SUBAGENT_CONTEXT_WINDOW` | 128 000 | window when the host knows none |
+| `DEFAULT_SUBAGENT_TIME_BUDGET_MS` | 2 400 000 | soft wall-clock budget: 40 minutes |
+| `DEFAULT_SUBAGENT_REPORT_GRACE_MS` | 120 000 | hard guard is budget + this |
+| `SUBAGENT_REPORT_TIMEOUT_MS` | 60 000 | cap on the report turn itself |
+| `MIN_SUBAGENT_TIME_MINUTES` / `MAX_SUBAGENT_TIME_MINUTES` | 1 / 120 | model-facing `timeMinutes` range |
+
+The working limits are **time and context**, not a step count. A child stops
+when either 75% of its context window is full or its wall-clock budget expires;
+it then writes the same hand-off report and the parent receives `partial` with
+`errorCode: 'context_limit'` or `'time_limit'`. `maxSteps` remains only as a
+runaway guard (10 000) and can be lowered per host or per test.
+
+The model may pass `timeMinutes` (integer 1–120) when delegating. It can only
+**lower** the host's budget, never raise it; an out-of-range value is
+`invalid_input`. Omitted, the host's `timeBudgetMs` applies — 40 minutes by
+default. A hard `timeoutMs` defaults to the child's budget plus the two-minute
+grace; an explicit shorter `timeoutMs` wins and is a `child_timeout` with **no**
+report, because an absolute deadline is not renegotiable.
 
 **No nesting.** v1 and v2 reject the delegation tool inside a child's grant: a
 child cannot start a grandchild. The rejection happens at grant resolution, not
@@ -120,12 +140,22 @@ A child ends when one of these happens:
 | --- | --- |
 | The child finishes its own work | `completed` |
 | The child fails | `failed` |
-| `timeoutMs` expires | `failed`, `errorCode: 'child_timeout'` |
-| `maxSteps` is reached | `failed`, result `partial` |
-| The child is cancelled | `cancelled` — **not** `failed` |
+| 75% of the context window is full | result `partial`, `errorCode: 'context_limit'`, with a report; row `failed` |
+| The soft time budget expires | result `partial`, `errorCode: 'time_limit'`, with a report; row `failed` |
+| An explicit hard `timeoutMs` expires | `failed`, `errorCode: 'child_timeout'`, no report |
+| `maxSteps` is reached | `failed`, result `partial`, no report |
+| The child is cancelled | `cancelled` — **not** `failed`, no report |
+
+A **completed** run always wins: if the graph finished while a budget timer was
+firing, the real answer is kept and no report call is made. The hand-off report
+is one tool-free model call appended to the child's own transcript; it asks for
+**Done**, **Found**, **Not done**, **Continue** and **Problems**, under 200
+words. If that call fails or returns nothing, the child's last text is kept and
+the detail says the report could not be produced.
 
 Cancellation and failure are kept apart on purpose: a child the user stopped did
-not go wrong.
+not go wrong. A cancellation that lands while the report is being written also
+wins: the report is discarded and the row is `cancelled`.
 
 ### The budget
 
@@ -207,8 +237,9 @@ stderr, and exits. The exit code still reflects the **main** run, not the
 children.
 
 `Z1_NO_WAIT=1` detaches instead: the run ids are printed and the process exits
-without waiting. Those children keep running until their own `timeoutMs`, and
-their rows stay `running` until the next start reaps them.
+without waiting. Those children keep running until their own soft time budget
+(or the hard guard), and their rows stay `running` until the next start reaps
+them.
 
 `/exit` cancels the running children, waits up to five seconds, and leaves. The
 wait is bounded and the timer does not hold the process open, so a child that
@@ -240,7 +271,7 @@ are untouched. The scope is the owner, not the worker.
 still hits the worker SIGKILL. That needs `com.z1.tools` to forward `ctx.signal`,
 which is a module version bump (`0.1.10`) and not yet done. A child spawned from
 a service *factory* lands on a shared owner and has no cancel path; it lives
-until its own `timeoutMs`.
+until its own soft time budget or hard guard.
 
 ## Known limits
 
@@ -255,7 +286,7 @@ until its own `timeoutMs`.
 
 | Suite | Location | Covers |
 | --- | --- | --- |
-| `packages/subagent` (141) | `z1-sdk/z1/packages/subagent/tests/` | grant, budget, background, cancel, result form |
+| `packages/subagent` (190) | `z1-sdk/z1/packages/subagent/tests/` | grant, budget, background, cancel, context/time hand-off, result form |
 | `subagent.test.mts` | `z1-cli/tests/` | the composed service, `wait` parity with v1 |
 | `subagent-background.test.mts` | `z1-cli/tests/` | registry, stop-one-keeps-others, `/new`, `--once` policy |
 | `subagent-cancel.test.mts` | `z1-cli/tests/` | a turn abort does not stop a background child |
